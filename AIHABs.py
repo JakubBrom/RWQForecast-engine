@@ -38,7 +38,7 @@ class AIHABs:
 
         self.db_name = "postgres"
         self.user = "postgres"
-        self.db_table_reservoirs = "water_reservoirs"
+        self.db_table_reservoirs = "reservoirs"
         self.db_table_points = "selected_points"
         self.db_table_S2_points_data = "s2_points_eo_data"  # db_bands_table
         self.db_features_table = "wq_points_results"
