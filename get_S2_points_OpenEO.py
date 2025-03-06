@@ -27,8 +27,63 @@ def authenticate_OEO():
 
     return connection
 
+def last_access(osm_id, db_name, user, db_access_date, n_days=2):
+    """
+    Get the last access date to CDSE for the reservoir
 
-def process_s2_points_OEO(osm_id, point_layer, start_date, end_date, db_name, user, db_table, max_cc=30, cloud_mask=True):
+    :param osm_id: OSM object id
+    :param db_name: Database name
+    :param user: Database user
+    :param db_access: Database table with access
+    :return: Continue calculation (bool)
+    """
+
+    # Connect to PostGIS
+    engine = create_engine('postgresql://{user}@/{db_name}'.format(user=user, db_name=db_name))
+    
+    # Test if the date for the osm_id exists
+    query = text(f"SELECT EXISTS (SELECT 1 FROM {db_access_date} WHERE osm_id = '{osm_id}')")
+    
+    with engine.connect() as connection:
+        result = connection.execute(query).scalar()
+    
+    # If the date exists, get the last access date and update the date if it is older than today - n_days   
+    if result:
+        query = text("SELECT MAX(date) FROM {db_table} WHERE osm_id = '{osm_id}'".format(db_table=db_access_date, osm_id=osm_id))        
+        
+        today = datetime.now().date()
+        with engine.connect() as connection:
+            last_access = connection.execute(query).scalar()
+        
+        print(last_access)
+        
+        if last_access < today - timedelta(days=n_days):
+            query = text("UPDATE {db_table} SET date = '{today}' WHERE osm_id = '{osm_id}'".format(db_table=db_access_date, today=today, osm_id=osm_id))
+            
+            with engine.connect() as connection:
+                connection.execute(query)
+                connection.commit()
+            
+            continue_calc = True
+        else:
+            continue_calc = False
+            
+    # If the date does not exist, add the date to the table
+    else:
+        query = text("INSERT INTO {db_table} (osm_id, date) VALUES ('{osm_id}', '{today}')".format(db_table=db_access_date, osm_id=osm_id, today=datetime.now().date()))
+        with engine.connect() as connection:
+            connection.execute(query)
+            connection.commit()
+            
+        continue_calc = True
+            
+    engine.dispose()        
+
+    print(f"Continue calculation: {continue_calc}")
+
+    return continue_calc
+
+def process_s2_points_OEO(provider_id, client_id, client_secret, osm_id, point_layer, start_date, end_date, db_name, user, db_table, oeo_backend_url="https://openeo.dataspace.copernicus.eu", max_cc=30, cloud_mask=True):
     """
     The function processes Sentinel-2 satellite data from the Copernicus Dataspace Ecosystem. The function
     retrieves data based on the specified parameters (cloud mask) for randomly selected points within the reservoir (
@@ -36,6 +91,7 @@ def process_s2_points_OEO(osm_id, point_layer, start_date, end_date, db_name, us
     The output is a GeoDataFrame.
 
     Parameters:
+    :param connection: OpenEO connection
     :param osm_id: OSM object id
     :param point_layer: Point layer (GeoDataFrame)
     :param start_date: Start date
@@ -49,7 +105,8 @@ def process_s2_points_OEO(osm_id, point_layer, start_date, end_date, db_name, us
     """
 
     # Authenticate Open EO account
-    connection = authenticate_OEO()
+    connection = openeo.connect(url=oeo_backend_url)
+    connection.authenticate_oidc_client_credentials(provider_id=provider_id, client_id=client_id, client_secret=client_secret)
 
     # Transform input GeoDataFrame layer into json
     points = json.loads(point_layer.to_json())
@@ -61,6 +118,8 @@ def process_s2_points_OEO(osm_id, point_layer, start_date, end_date, db_name, us
     collection_info = connection.describe_collection("SENTINEL2_L2A")
     bands = collection_info['cube:dimensions']['bands']
     band_list = bands['values'][0:15]
+    
+    print(band_list)
 
     # Getting data
     datacube = connection.load_collection(
@@ -186,15 +245,19 @@ def process_s2_points_OEO(osm_id, point_layer, start_date, end_date, db_name, us
         return jobid
 
 
-def check_job_error(jobid=None):
+def check_job_error(connection, jobid=None):
     """
     Check if the dataset is empty
 
+    :param connection: OpenEO connection
     :param jobid:
     :return:
     """
     # Connection to OEO
-    connection = authenticate_OEO()
+    if not connection or connection is None:
+        warnings.warn("Connection to OpenEO is not established!", stacklevel=2)
+        
+        return
 
     # Check if the error is in the log
     if jobid is not None:
@@ -230,12 +293,13 @@ def check_job_error(jobid=None):
 
 
 @measure_execution_time
-def get_s2_points_OEO(osm_id, db_name, user, db_table_reservoirs, db_table_points, db_table_S2_points_data,
+def get_s2_points_OEO(provider_id, client_id, client_secret, osm_id, db_name, user, db_table_reservoirs, db_table_points, db_table_S2_points_data, db_access_date, oeo_backend_url="https://openeo.dataspace.copernicus.eu",
                        start_date=None, end_date=None, n_points_max=5000, **kwargs):
     """
     This function is a wrapper for the get_sentinel2_data function. It calls it with the defined parameters,
     manage the time windows and the database connection.
 
+    :param connection: OpenEO connection
     :param osm_id: OSM water reservoir id
     :param db_name: Database name
     :param user: Database user
@@ -250,6 +314,13 @@ def get_s2_points_OEO(osm_id, db_name, user, db_table_reservoirs, db_table_point
     :return: None
     """
 
+    # Test the last access date
+    continue_calc = last_access(osm_id, db_name, user, db_access_date)
+    
+    if not continue_calc:
+        print("Data for the reservoir are up to date.")
+        return
+    
     # Connect to PostGIS
     engine = create_engine('postgresql://{user}@/{db_name}'.format(user=user, db_name=db_name))
 
@@ -331,14 +402,16 @@ def get_s2_points_OEO(osm_id, db_name, user, db_table_reservoirs, db_table_point
         while dataset_err:
             try:
                 print(f"Attempt no. {attempt_no} to get Sentinel 2 data.")
-                jobid = process_s2_points_OEO(osm_id, point_layer, slots[i][0], slots[i][1], db_name, user, db_table_S2_points_data)
+                jobid = process_s2_points_OEO(provider_id, client_id, client_secret, osm_id, point_layer, slots[i][0], slots[i][1], db_name, user, db_table_S2_points_data, oeo_backend_url=oeo_backend_url)
+                print(f"Job ID: {jobid}")
+                dataset_err = False
 
             except Exception as e:
                 print(f"Attempt no. {attempt_no} to get Sentinel 2 data failed. Error: {str(e)}")
                 jobid = None
 
-            # Check if there is an error in the job
-            dataset_err = check_job_error(jobid)
+            # # Check if there is an error in the job
+            # dataset_err = check_job_error(connection, jobid)
 
             if dataset_err:
                 warnings.warn(f"Attempt no. {attempt_no} to get Sentinel 2 data failed.", stacklevel=2)
@@ -383,7 +456,7 @@ def get_s2_points_OEO(osm_id, db_name, user, db_table_reservoirs, db_table_point
 
                 while attempt < max_attempts and not success:
                     try:
-                        process_s2_points_OEO(osm_id, point_layer, slots_window[slot][0], slots_window[slot][1], db_name, user,
+                        process_s2_points_OEO(connection, osm_id, point_layer, slots_window[slot][0], slots_window[slot][1], db_name, user,
                                               db_table_S2_points_data)
                         success = True
                     except Exception as e:
