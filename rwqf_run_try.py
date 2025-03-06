@@ -8,8 +8,8 @@ if __name__ == '__main__':
     db_name = "postgres"
     
     OPENEO_BACKEND = "https://openeo.dataspace.copernicus.eu"
-    clid = "sh-a1916acf-4f71-4e1f-9698-b9ae457e2ee7"
-    clse = "R1K8P1WU8aK2zNPT2ZUf5C5aXpzncGJh"
+    clid = "clientid"
+    clse = "client_secret_key"
     provider_id = "CDSE"
 
     aihabs = AIHABs()
