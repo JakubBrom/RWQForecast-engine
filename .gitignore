@@ -1,4 +1,7 @@
 __pycache__/
+temp/
+.vscode/
 *.pyc
 user_inputs.py
 rwqf_run_try.py
+.cache.sqlite
