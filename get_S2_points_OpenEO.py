@@ -118,8 +118,6 @@ def process_s2_points_OEO(provider_id, client_id, client_secret, osm_id, point_l
     collection_info = connection.describe_collection("SENTINEL2_L2A")
     bands = collection_info['cube:dimensions']['bands']
     band_list = bands['values'][0:15]
-    
-    print(band_list)
 
     # Getting data
     datacube = connection.load_collection(
@@ -191,11 +189,13 @@ def process_s2_points_OEO(provider_id, client_id, client_secret, osm_id, point_l
                 time.sleep(1)
 
             df = pd.read_csv(csv_path)
+
             print("Data has been downloaded!")
+            
 
             print("Writing data to the PostGIS table")
             # Convert to GeoDataFrame
-            if df.get('date') is not None:
+            if not df.empty:
                 # Convert date do isoformat
                 df['date'] = pd.to_datetime(df['date']).dt.date
 
