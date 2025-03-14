@@ -20,6 +20,7 @@ from get_random_points import get_sampling_points
 from get_meteo import getLastDateInDB
 
 
+
 def authenticate_OEO():
     # Authenticate
     connection = openeo.connect(url="openeo.dataspace.copernicus.eu")
@@ -175,7 +176,7 @@ def process_s2_points_OEO(provider_id, client_id, client_secret, osm_id, point_l
         if job.status() == 'finished':
             # Create temporary CSV file
             csv_file = f"{uuid.uuid4()}.csv"
-            csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp', csv_file)
+            csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp', csv_file)       # XXX: přesměrovat do tmp složky
 
             # Download the results
             job.get_results().download_file(csv_path)
@@ -188,27 +189,36 @@ def process_s2_points_OEO(provider_id, client_id, client_secret, osm_id, point_l
                     print(f"Data are not available.")
                 time.sleep(1)
 
-            df = pd.read_csv(csv_path)
+            df = pd.read_csv(csv_path, skip_blank_lines=True)
 
             print("Data has been downloaded!")
             
 
-            print("Writing data to the PostGIS table")
+            print("Writing data to the PostGIS table:")
             # Convert to GeoDataFrame
             if not df.empty:
+                print("DF is not empty")
                 # Convert date do isoformat
                 df['date'] = pd.to_datetime(df['date']).dt.date
 
+                print("Datum ok")
+
                 # Remove missing values
                 df_all = df.dropna(axis=0, how='any')
+
+                print("Dropna ok")
 
                 # Rename columns
                 df_all = df_all.rename(columns={'feature_index': 'PID'})
                 for i in range(0, len(band_list)):
                     df_all = df_all.rename(columns={'avg(band_{})'.format(i): band_list[i]})
 
+                print("Rename ok")
+
                 # Add OSM id
-                df_all['osm_id'] = point_layer['osm_id'][0]
+                df_all['osm_id'] = osm_id
+
+                print("OSM ID ok")
 
                 # Convert to GeoDataFrame
                 latlon = pd.DataFrame(point_layer['PID'])
@@ -219,9 +229,13 @@ def process_s2_points_OEO(provider_id, client_id, client_secret, osm_id, point_l
                 geometries = [Point(xy) for xy in zip(df_all['lon'], df_all['lat'])]
                 gdf_out = gpd.GeoDataFrame(df_all, geometry=geometries, crs='epsg:4326')
 
+                print("GeoDataFrame ok")
+
                 # Save the results to the database
                 gdf_out.to_postgis(db_table, con=engine, if_exists='append', index=False)
                 engine.dispose()
+
+                print(gdf_out.head())
 
                 print("Done!")
 
@@ -313,6 +327,8 @@ def get_s2_points_OEO(provider_id, client_id, client_secret, osm_id, db_name, us
     :param kwargs: Kwargs
     :return: None
     """
+
+    print("Running the analysis for the reservoir with OSM ID: {osm_id}".format(osm_id=osm_id))
 
     # Test the last access date
     continue_calc = last_access(osm_id, db_name, user, db_access_date)
