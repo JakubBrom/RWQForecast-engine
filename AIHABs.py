@@ -31,7 +31,7 @@ class AIHABs:
         """
 
         # Authenticate after starting the program
-        self.provider_id = None
+        self.provider_id = "CDSE"
         self.client_id = None
         self.client_secret = None
         self.oeo_backend = "https://openeo.dataspace.copernicus.eu"
