@@ -1,5 +1,6 @@
 __pycache__/
 temp/
+data_test/
 .vscode/
 *.pyc
 user_inputs.py
