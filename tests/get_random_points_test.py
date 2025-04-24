@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 
 class MyTestCase(unittest.TestCase):
 
-    osm_id = 11092220
+    osm_id = 14945112
     db_name = "postgres"
     user = "postgres"
     db_table_reservoirs = "reservoirs"

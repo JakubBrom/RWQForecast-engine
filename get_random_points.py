@@ -11,7 +11,10 @@ from shapely.geometry import Polygon, Point, MultiPolygon
 from scipy.spatial import Delaunay, Voronoi, KDTree
 from sqlalchemy import create_engine, text
 from multiprocessing import Pool
-from .AIHABs_wrappers import measure_execution_time
+try:
+    from .AIHABs_wrappers import measure_execution_time
+except ImportError:
+    from AIHABs_wrappers import measure_execution_time
 
 def points_clip(points, polygon):
     """
@@ -245,22 +248,21 @@ def generate_points_in_polygon(in_gdf_polygon, lake_buffer=-20, n_points_km=100,
     if n_points <= n_points_km:
         n_points = min(n_points_km, n_centroids_clipped)
     else:
-        n_points = min(n_points, n_centroids_clipped, n_max_points)
-
-    print(f'Number of points for the reservoir: {n_points}')
+        n_points = min(n_points, n_centroids_clipped, n_max_points)    
 
     # # Sample points
-    # gdf_centroids_selected = gdf_centroids_clipped.sample(n=n_points)
     gdf_centroids_selected = sample_with_min_distance_kdtree(gdf_centroids_clipped, npoints=n_points, min_dist=20)
     gdf_centroids_selected = gpd.GeoDataFrame(gdf_centroids_selected, geometry='geometry', crs=epsg_utm)
     
     # Transform to WGS84
-    gdf_centroids_clipped = gdf_centroids_clipped.to_crs(epsg_orig)
+    # gdf_centroids_clipped = gdf_centroids_clipped.to_crs(epsg_orig)
     gdf_centroids_selected = gdf_centroids_selected.to_crs(epsg_orig)
-    gdf_buffer_wgs = gdf_buffer_utm.to_crs(epsg_orig)
-    gdf_centroids = gdf_centroids.to_crs(epsg_orig)
-
-    return gdf_centroids_clipped, gdf_centroids_selected, gdf_buffer_wgs
+    # gdf_buffer_wgs = gdf_buffer_utm.to_crs(epsg_orig)
+    # gdf_centroids = gdf_centroids.to_crs(epsg_orig)
+    
+    # print(f'Number of points for the reservoir: {len(gdf_centroids_selected)}')
+    
+    return gdf_centroids_selected
 
 @measure_execution_time
 def get_sampling_points(osm_id, db_name, user, db_table_reservoirs, db_table_points, **kwargs):
@@ -302,14 +304,18 @@ def get_sampling_points(osm_id, db_name, user, db_table_reservoirs, db_table_poi
     sql_query = "SELECT * FROM {db_table} WHERE osm_id = '{osm_id}'".format(osm_id=str(osm_id), db_table=db_table_reservoirs)
     gdf = gpd.read_postgis(sql_query, engine, geom_col='geometry')
     polygon = gpd.GeoDataFrame(gdf, geometry='geometry', crs='epsg:4326')
+    
+    print(polygon)
 
     # Produce random points in the reservoir polygon
-    points_selected = generate_points_in_polygon(polygon, **kwargs)[1]
+    points_selected = generate_points_in_polygon(polygon, **kwargs)
     points_selected['osm_id'] = str(osm_id)  # Add osm_id
     points_selected['PID'] = [i for i in range(len(points_selected))]
 
     # Insert points into the DB table
     points_selected.to_postgis(db_table_points, con=engine, if_exists='append', index=False)
     engine.dispose()
+    
+    print(f'Number of points for the reservoir: {len(points_selected)}')
 
-    return points_selected, polygon
+    return points_selected
